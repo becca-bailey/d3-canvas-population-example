@@ -1,20 +1,21 @@
 import * as d3 from "d3";
 import React from "react";
-import { Delaunay } from "d3-delaunay";
 import jsonData from "../public/data.json";
 import { XAxis } from "./components/XAxis";
 import { YAxis } from "./components/YAxis";
 import { Tooltip } from "./components/Tooltip";
 import "./styles.css";
 
-const defaultHeight = 400;
-const defaultWidth = 600;
+const defaultHeight = 500;
+const defaultWidth = 800;
 const defaultMargin = {
   left: 70,
   right: 20,
   top: 20,
   bottom: 60
 };
+const lineWidth = 2;
+const pointSize = 3;
 
 const populationData = jsonData.populationData;
 
@@ -46,25 +47,25 @@ export default function App({
     return flattenedData.map(({ value }) => value);
   }, [flattenedData]);
 
-  const x = d3
+  const scaleX = d3
     .scaleLinear()
     .domain(d3.extent(allYears))
     .range([margin.left, width - margin.right])
     .nice();
 
-  const y = d3
+  const scaleY = d3
     .scaleLinear()
     .domain(d3.extent(allValues))
     .range([height - margin.bottom, margin.top])
     .nice();
 
   const delaunay = React.useMemo(() => {
-    return Delaunay.from(
+    return d3.Delaunay.from(
       flattenedData,
-      (d) => x(d.year),
-      (d) => y(d.value)
+      (d) => scaleX(d.year),
+      (d) => scaleY(d.value)
     );
-  }, [flattenedData, x, y]);
+  }, [flattenedData, scaleX, scaleY]);
 
   const colorScale = d3
     .scaleSequential()
@@ -76,28 +77,28 @@ export default function App({
       const [first, ...rest] = values;
 
       ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = lineWidth;
 
       ctx.beginPath();
 
-      ctx.moveTo(x(first.year), y(first.value));
+      ctx.moveTo(scaleX(first.year), scaleY(first.value));
 
       rest.forEach(({ year, value }) => {
-        const xValue = x(year);
-        const yValue = y(value);
+        const xValue = scaleX(year);
+        const yValue = scaleY(value);
 
         ctx.lineTo(xValue, yValue);
       });
 
       ctx.stroke();
     },
-    [x, y]
+    [scaleX, scaleY]
   );
 
   const drawPoint = React.useCallback((ctx, x, y, color) => {
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.arc(x, y, 3, 0, 2 * Math.PI);
+    ctx.arc(x, y, pointSize, 0, 2 * Math.PI);
     ctx.fill();
   }, []);
 
@@ -140,11 +141,12 @@ export default function App({
       const color = getColor(country.values);
       drawLine(ctx, country.values, color);
       if (activePoint) {
+        // Find all values where year is the active year
         const point = country.values.find(({ year }) => {
           return year === activePoint.year;
         });
         if (point) {
-          drawPoint(ctx, x(activePoint.year), y(point.value), color);
+          drawPoint(ctx, scaleX(activePoint.year), scaleY(point.value), color);
         }
       }
     });
@@ -155,8 +157,8 @@ export default function App({
     getColor,
     activePoint,
     drawPoint,
-    x,
-    y,
+    scaleX,
+    scaleY,
     width,
     height
   ]);
@@ -187,16 +189,16 @@ export default function App({
         </text>
         {activePoint && (
           <line
-            stroke="darkgray"
+            stroke="#F0F0F0"
             strokeWidth={2}
-            x1={x(activePoint.year)}
-            x2={x(activePoint.year)}
+            x1={scaleX(activePoint.year)}
+            x2={scaleX(activePoint.year)}
             y1={margin.top}
             y2={height - margin.bottom}
           />
         )}
-        <XAxis scale={x} margin={margin} height={height} />
-        <YAxis scale={y} margin={margin} />
+        <XAxis scale={scaleX} margin={margin} height={height} />
+        <YAxis scale={scaleY} margin={margin} />
       </svg>
       <canvas
         className="chart"
@@ -210,6 +212,7 @@ export default function App({
         }}
         ref={canvasRef}
       />
+      {/* This SVG overlay ensures that the tooltip is on top of the chart */}
       <svg
         className="chart"
         height={height}
@@ -221,8 +224,8 @@ export default function App({
       >
         {activePoint && (
           <Tooltip
-            x={x(activePoint.year)}
-            y={y(activePoint.value)}
+            x={scaleX(activePoint.year)}
+            y={scaleY(activePoint.value)}
             width={200}
             height={100}
             canvasWidth={width}
