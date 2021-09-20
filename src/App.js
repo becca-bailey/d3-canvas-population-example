@@ -72,6 +72,45 @@ export default function App({
     .domain([0, d3.max(allValues)])
     .interpolator(d3.interpolateRainbow);
 
+  const getColor = React.useCallback(
+    (values) => {
+      const mean = d3.mean(values.map(({ value }) => value));
+      return colorScale(mean);
+    },
+    [colorScale]
+  );
+
+  const onMouseMove = React.useCallback(
+    (event) => {
+      const [xPosition, yPosition] = d3.pointer(event);
+
+      const index = delaunay.find(xPosition, yPosition);
+      setActivePoint(flattenedData[index]);
+    },
+    [setActivePoint, flattenedData, delaunay]
+  );
+
+  const onMouseLeave = React.useCallback(() => {
+    setActivePoint(undefined);
+  }, [setActivePoint]);
+
+  const updateData = React.useCallback(
+    (newData) => {
+      setActiveData(newData);
+    },
+    [setActiveData]
+  );
+
+  const handleClick = React.useCallback(() => {
+    if (activeData.length === 1) {
+      updateData(data);
+    } else {
+      const { country } = activePoint;
+      const dataForCountry = data.filter((d) => d.country === country);
+      updateData(dataForCountry);
+    }
+  }, [activeData, activePoint, data, updateData]);
+
   const drawLine = React.useCallback(
     (ctx, values = [], color) => {
       const [first, ...rest] = values;
@@ -102,66 +141,35 @@ export default function App({
     ctx.fill();
   }, []);
 
-  const getColor = React.useCallback(
-    (values) => {
-      const mean = d3.mean(values.map(({ value }) => value));
-      return colorScale(mean);
+  const drawLines = React.useCallback(
+    (ctx) => {
+      activeData.forEach((country) => {
+        const color = getColor(country.values);
+        drawLine(ctx, country.values, color);
+        if (activePoint) {
+          // Find all values where year is the active year
+          const point = country.values.find(({ year }) => {
+            return year === activePoint.year;
+          });
+          if (point) {
+            drawPoint(
+              ctx,
+              scaleX(activePoint.year),
+              scaleY(point.value),
+              color
+            );
+          }
+        }
+      });
     },
-    [colorScale]
+    [activeData, drawLine, getColor, activePoint, drawPoint, scaleX, scaleY]
   );
-
-  const onMouseMove = React.useCallback(
-    (event) => {
-      const [xPosition, yPosition] = d3.pointer(event);
-
-      const index = delaunay.find(xPosition, yPosition);
-      setActivePoint(flattenedData[index]);
-    },
-    [setActivePoint, flattenedData, delaunay]
-  );
-
-  const onMouseLeave = React.useCallback(() => {
-    setActivePoint(undefined);
-  }, [setActivePoint]);
-
-  const handleClick = React.useCallback(() => {
-    if (activeData.length === 1) {
-      setActiveData(data);
-    } else {
-      const { country } = activePoint;
-      const dataForCountry = data.filter((d) => d.country === country);
-      setActiveData(dataForCountry);
-    }
-  }, [activeData, setActiveData, activePoint, data]);
 
   React.useLayoutEffect(() => {
     const ctx = canvasRef.current.getContext("2d");
     ctx.clearRect(0, 0, width, height);
-    activeData.forEach((country) => {
-      const color = getColor(country.values);
-      drawLine(ctx, country.values, color);
-      if (activePoint) {
-        // Find all values where year is the active year
-        const point = country.values.find(({ year }) => {
-          return year === activePoint.year;
-        });
-        if (point) {
-          drawPoint(ctx, scaleX(activePoint.year), scaleY(point.value), color);
-        }
-      }
-    });
-  }, [
-    activeData,
-    canvasRef,
-    drawLine,
-    getColor,
-    activePoint,
-    drawPoint,
-    scaleX,
-    scaleY,
-    width,
-    height
-  ]);
+    window.requestAnimationFrame(() => drawLines(ctx));
+  }, [canvasRef, width, height, drawLines]);
 
   return (
     <main>
