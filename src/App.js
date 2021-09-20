@@ -1,9 +1,10 @@
-import React from "react";
-import "./styles.css";
-import jsonData from "../public/data.json";
 import * as d3 from "d3";
+import React from "react";
+import { Delaunay } from "d3-delaunay";
+import jsonData from "../public/data.json";
 import { XAxis } from "./components/XAxis";
 import { YAxis } from "./components/YAxis";
+import "./styles.css";
 
 const defaultHeight = 400;
 const defaultWidth = 600;
@@ -24,18 +25,21 @@ export default function App({
 }) {
   const canvasRef = React.useRef();
   const [hoveredX, setHoveredX] = React.useState();
+  const [hoveredY, setHoveredY] = React.useState();
+
+  const allPoints = React.useMemo(() => {
+    return data.reduce((allData, { values }) => {
+      return [...allData, ...values];
+    }, []);
+  }, [data]);
 
   const allYears = React.useMemo(() => {
-    return data.reduce((years, { values }) => {
-      return [...years, ...values.map(({ year }) => year)];
-    }, []);
-  }, [data]);
+    return allPoints.map(({ year }) => year);
+  }, [allPoints]);
 
   const allValues = React.useMemo(() => {
-    return data.reduce((populations, { values }) => {
-      return [...populations, ...values.map(({ value }) => value)];
-    }, []);
-  }, [data]);
+    return allPoints.map(({ value }) => value);
+  }, [allPoints]);
 
   const x = d3
     .scaleLinear()
@@ -49,6 +53,14 @@ export default function App({
     .range([height - margin.bottom, margin.top])
     .nice();
 
+  const delaunay = React.useMemo(() => {
+    return Delaunay.from(
+      allPoints,
+      (d) => x(d.year),
+      (d) => y(d.value)
+    );
+  }, [allPoints, x, y]);
+
   const colorScale = d3
     .scaleSequential()
     .domain([0, d3.max(allValues)])
@@ -59,7 +71,7 @@ export default function App({
       const [first, ...rest] = values;
 
       ctx.strokeStyle = color;
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 2;
 
       ctx.beginPath();
 
@@ -80,36 +92,39 @@ export default function App({
   const drawPoint = React.useCallback((ctx, x, y, color) => {
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.arc(x, y, 2, 0, 2 * Math.PI);
+    ctx.arc(x, y, 3, 0, 2 * Math.PI);
     ctx.fill();
   }, []);
 
   const getColor = React.useCallback(
     (values) => {
-      const max = d3.max(values.map(({ value }) => value));
-      return colorScale(max);
+      const mean = d3.mean(values.map(({ value }) => value));
+      return colorScale(mean);
     },
     [colorScale]
   );
 
   const onMouseMove = React.useCallback(
     (event) => {
-      const [xPosition] = d3.pointer(event);
-      const hoveredX = x.invert(xPosition);
-      // Don't show the line if it goes out of bounds
-      if (hoveredX >= d3.min(allYears) && hoveredX <= d3.max(allYears)) {
-        setHoveredX(hoveredX);
-      }
+      const [xPosition, yPosition] = d3.pointer(event);
+
+      const index = delaunay.find(xPosition, yPosition);
+      const { year, value } = allPoints[index];
+
+      setHoveredX(year);
+      setHoveredY(value);
     },
-    [setHoveredX, x, allYears]
+    [setHoveredX, allPoints, delaunay]
   );
 
   const onMouseLeave = React.useCallback(() => {
     setHoveredX(undefined);
+    setHoveredY(undefined);
   }, [setHoveredX]);
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     const ctx = canvasRef.current.getContext("2d");
+    ctx.clearRect(0, 0, width, height);
     data.forEach((country) => {
       const color = getColor(country.values);
       drawLine(ctx, country.values, color);
@@ -118,11 +133,22 @@ export default function App({
           return year === hoveredX;
         });
         if (point) {
-          drawPoint(ctx, hoveredX, point.value, color);
+          drawPoint(ctx, x(hoveredX), y(point.value), color);
         }
       }
     });
-  }, [canvasRef, data, drawLine, getColor, hoveredX, drawPoint]);
+  }, [
+    canvasRef,
+    data,
+    drawLine,
+    getColor,
+    hoveredX,
+    drawPoint,
+    x,
+    y,
+    width,
+    height
+  ]);
 
   return (
     <main>
@@ -163,8 +189,8 @@ export default function App({
           marginBottom: margin.bottom
         }}
         ref={canvasRef}
-        onMouseLeave={onMouseLeave}
         onMouseMove={onMouseMove}
+        onMouseLeave={onMouseLeave}
       />
     </main>
   );
