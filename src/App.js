@@ -4,6 +4,7 @@ import { Delaunay } from "d3-delaunay";
 import jsonData from "../public/data.json";
 import { XAxis } from "./components/XAxis";
 import { YAxis } from "./components/YAxis";
+import { Tooltip } from "./components/Tooltip";
 import "./styles.css";
 
 const defaultHeight = 400;
@@ -24,22 +25,26 @@ export default function App({
   margin = defaultMargin
 }) {
   const canvasRef = React.useRef();
-  const [hoveredX, setHoveredX] = React.useState();
-  const [hoveredY, setHoveredY] = React.useState();
+  const [activePoint, setActivePoint] = React.useState();
+  const [activeData, setActiveData] = React.useState(data);
 
-  const allPoints = React.useMemo(() => {
-    return data.reduce((allData, { values }) => {
-      return [...allData, ...values];
+  const flattenedData = React.useMemo(() => {
+    return activeData.reduce((allData, { country, values }) => {
+      const dataWithCountry = values.map((rest) => ({
+        country,
+        ...rest
+      }));
+      return [...allData, ...dataWithCountry];
     }, []);
-  }, [data]);
+  }, [activeData]);
 
   const allYears = React.useMemo(() => {
-    return allPoints.map(({ year }) => year);
-  }, [allPoints]);
+    return flattenedData.map(({ year }) => year);
+  }, [flattenedData]);
 
   const allValues = React.useMemo(() => {
-    return allPoints.map(({ value }) => value);
-  }, [allPoints]);
+    return flattenedData.map(({ value }) => value);
+  }, [flattenedData]);
 
   const x = d3
     .scaleLinear()
@@ -55,11 +60,11 @@ export default function App({
 
   const delaunay = React.useMemo(() => {
     return Delaunay.from(
-      allPoints,
+      flattenedData,
       (d) => x(d.year),
       (d) => y(d.value)
     );
-  }, [allPoints, x, y]);
+  }, [flattenedData, x, y]);
 
   const colorScale = d3
     .scaleSequential()
@@ -109,40 +114,46 @@ export default function App({
       const [xPosition, yPosition] = d3.pointer(event);
 
       const index = delaunay.find(xPosition, yPosition);
-      const { year, value } = allPoints[index];
-
-      setHoveredX(year);
-      setHoveredY(value);
+      setActivePoint(flattenedData[index]);
     },
-    [setHoveredX, allPoints, delaunay]
+    [setActivePoint, flattenedData, delaunay]
   );
 
   const onMouseLeave = React.useCallback(() => {
-    setHoveredX(undefined);
-    setHoveredY(undefined);
-  }, [setHoveredX]);
+    setActivePoint(undefined);
+  }, [setActivePoint]);
+
+  const handleClick = React.useCallback(() => {
+    if (activeData.length === 1) {
+      setActiveData(data);
+    } else {
+      const { country } = activePoint;
+      const dataForCountry = data.filter((d) => d.country === country);
+      setActiveData(dataForCountry);
+    }
+  }, [activeData, setActiveData, activePoint, data]);
 
   React.useLayoutEffect(() => {
     const ctx = canvasRef.current.getContext("2d");
     ctx.clearRect(0, 0, width, height);
-    data.forEach((country) => {
+    activeData.forEach((country) => {
       const color = getColor(country.values);
       drawLine(ctx, country.values, color);
-      if (hoveredX) {
+      if (activePoint) {
         const point = country.values.find(({ year }) => {
-          return year === hoveredX;
+          return year === activePoint.year;
         });
         if (point) {
-          drawPoint(ctx, x(hoveredX), y(point.value), color);
+          drawPoint(ctx, x(activePoint.year), y(point.value), color);
         }
       }
     });
   }, [
+    activeData,
     canvasRef,
-    data,
     drawLine,
     getColor,
-    hoveredX,
+    activePoint,
     drawPoint,
     x,
     y,
@@ -159,18 +170,27 @@ export default function App({
         width={width}
         transform={`translate(${margin.left}, ${margin.top})`}
       >
-        <text x={(height / 2) * -1} dy={15} transform="rotate(-90)">
-          Population (in billions)
+        <text
+          x={(height / 2 - margin.top / 2) * -1}
+          dy={15}
+          transform="rotate(-90)"
+          textAnchor="middle"
+        >
+          Population
         </text>
-        <text x={width / 2} y={height - 10}>
+        <text
+          x={width / 2 + margin.left / 2}
+          y={height - 10}
+          textAnchor="middle"
+        >
           Year
         </text>
-        {hoveredX && (
+        {activePoint && (
           <line
             stroke="darkgray"
             strokeWidth={2}
-            x1={x(hoveredX)}
-            x2={x(hoveredX)}
+            x1={x(activePoint.year)}
+            x2={x(activePoint.year)}
             y1={margin.top}
             y2={height - margin.bottom}
           />
@@ -189,9 +209,32 @@ export default function App({
           marginBottom: margin.bottom
         }}
         ref={canvasRef}
+      />
+      <svg
+        className="chart"
+        height={height}
+        width={width}
+        transform={`translate(${margin.left}, ${margin.top})`}
         onMouseMove={onMouseMove}
         onMouseLeave={onMouseLeave}
-      />
+        onClick={handleClick}
+      >
+        {activePoint && (
+          <Tooltip
+            x={x(activePoint.year)}
+            y={y(activePoint.value)}
+            width={200}
+            height={100}
+            canvasWidth={width}
+            margin={margin}
+          >
+            <div style={{ fontWeight: "bold" }}>{activePoint.country}</div>
+            <div>
+              {activePoint.year} - {activePoint.value}
+            </div>
+          </Tooltip>
+        )}
+      </svg>
     </main>
   );
 }

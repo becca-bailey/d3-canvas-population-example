@@ -2,7 +2,13 @@ import * as d3 from "d3";
 import React from "react";
 
 function formatPopulation(value) {
-  return value / 1_000_000_000;
+  if (value >= 1_000_000_000) {
+    return `${value / 1_000_000_000}B`;
+  } else if (value >= 1_000_000) {
+    return `${value / 1_000_000}M`;
+  } else {
+    return value;
+  }
 }
 
 export function YAxis({ scale, height, margin }) {
