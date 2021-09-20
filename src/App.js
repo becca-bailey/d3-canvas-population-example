@@ -231,10 +231,10 @@ export default function App({
             canvasWidth={width}
             margin={margin}
           >
-            <div style={{ fontWeight: "bold" }}>{activePoint.country}</div>
-            <div>
+            <p className="bold">{activePoint.country}</p>
+            <p>
               {activePoint.year} - {activePoint.value}
-            </div>
+            </p>
           </Tooltip>
         )}
       </svg>

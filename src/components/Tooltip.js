@@ -18,16 +18,7 @@ export function Tooltip({
       width={width}
       height={height}
     >
-      <div
-        style={{
-          backgroundColor: "white",
-          padding: ".5rem",
-          border: "1px solid black",
-          textAlign: "left"
-        }}
-      >
-        {children}
-      </div>
+      <div className="tooltip">{children}</div>
     </foreignObject>
   );
 }

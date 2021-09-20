@@ -3,7 +3,23 @@ main {
   text-align: center;
 }
 
+p {
+  margin: 0;
+  padding: 0;
+}
+
 .chart {
   position: absolute;
   left: 0;
+}
+
+.bold {
+  font-weight: bold;
+}
+
+.tooltip {
+  background-color: white;
+  padding: 0.5rem;
+  border: 1px solid black;
+  text-align: left;
 }
