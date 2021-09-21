@@ -1,6 +1,6 @@
 import * as d3 from "d3";
 import React from "react";
-import jsonData from "../public/data.json";
+import jsonData from "./data/data.json";
 import { XAxis } from "./components/XAxis";
 import { YAxis } from "./components/YAxis";
 import { Tooltip } from "./components/Tooltip";
@@ -26,18 +26,55 @@ export default function App({
   margin = defaultMargin
 }) {
   const canvasRef = React.useRef();
+  const pointsCanvasRef = React.useRef();
   const [activePoint, setActivePoint] = React.useState();
-  const [activeData, setActiveData] = React.useState(data);
+  const [isolatedCountry, setIsolatedCountry] = React.useState();
+
+  // This is repetitive, but speeds up the interaction a lot
+  const scaledData = React.useMemo(() => {
+    const initialData = isolatedCountry
+      ? data.filter(({ country }) => country === isolatedCountry)
+      : data;
+    const allYears = initialData[0].values.map(({ year }) => year);
+    const allValues = initialData.reduce((allValues, { values }) => {
+      const newValues = values.map(({ value }) => value);
+      return [...allValues, ...newValues];
+    }, []);
+
+    const scaleX = d3
+      .scaleLinear()
+      .domain(d3.extent(allYears))
+      .range([margin.left, width - margin.right])
+      .nice();
+
+    const scaleY = d3
+      .scaleLinear()
+      .domain(d3.extent(allValues))
+      .range([height - margin.bottom, margin.top])
+      .nice();
+
+    return initialData.map(({ country, values }) => {
+      const valuesWithScaledXAndY = values.map(({ year, value }) => {
+        return {
+          year,
+          value,
+          scaledX: scaleX(year),
+          scaledY: scaleY(value),
+          country
+        };
+      });
+      return {
+        country,
+        values: valuesWithScaledXAndY
+      };
+    });
+  }, [data, margin, height, width, isolatedCountry]);
 
   const flattenedData = React.useMemo(() => {
-    return activeData.reduce((allData, { country, values }) => {
-      const dataWithCountry = values.map((rest) => ({
-        country,
-        ...rest
-      }));
-      return [...allData, ...dataWithCountry];
+    return scaledData.reduce((allData, { values }) => {
+      return [...allData, ...values];
     }, []);
-  }, [activeData]);
+  }, [scaledData]);
 
   const allYears = React.useMemo(() => {
     return flattenedData.map(({ year }) => year);
@@ -62,10 +99,10 @@ export default function App({
   const delaunay = React.useMemo(() => {
     return d3.Delaunay.from(
       flattenedData,
-      (d) => scaleX(d.year),
-      (d) => scaleY(d.value)
+      (d) => d.scaledX,
+      (d) => d.scaledY
     );
-  }, [flattenedData, scaleX, scaleY]);
+  }, [flattenedData]);
 
   const colorScale = d3
     .scaleSequential()
@@ -94,82 +131,75 @@ export default function App({
     setActivePoint(undefined);
   }, [setActivePoint]);
 
-  const updateData = React.useCallback(
-    (newData) => {
-      setActiveData(newData);
-    },
-    [setActiveData]
-  );
-
   const handleClick = React.useCallback(() => {
-    if (activeData.length === 1) {
-      updateData(data);
+    if (isolatedCountry) {
+      setIsolatedCountry(undefined);
     } else {
       const { country } = activePoint;
-      const dataForCountry = data.filter((d) => d.country === country);
-      updateData(dataForCountry);
+      setIsolatedCountry(country);
     }
-  }, [activeData, activePoint, data, updateData]);
+  }, [activePoint, setIsolatedCountry, isolatedCountry]);
 
-  const drawLine = React.useCallback(
-    (ctx, values = [], color) => {
-      const [first, ...rest] = values;
-
-      ctx.strokeStyle = color;
-      ctx.lineWidth = lineWidth;
-
-      ctx.beginPath();
-
-      ctx.moveTo(scaleX(first.year), scaleY(first.value));
-
-      rest.forEach(({ year, value }) => {
-        const xValue = scaleX(year);
-        const yValue = scaleY(value);
-
-        ctx.lineTo(xValue, yValue);
-      });
-
-      ctx.stroke();
-    },
-    [scaleX, scaleY]
-  );
-
-  const drawPoint = React.useCallback((ctx, x, y, color) => {
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(x, y, pointSize, 0, 2 * Math.PI);
-    ctx.fill();
-  }, []);
-
-  const drawLines = React.useCallback(
+  const drawPoints = React.useCallback(
     (ctx) => {
-      activeData.forEach((country) => {
+      const drawPoint = (ctx, x, y, color) => {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, pointSize, 0, 2 * Math.PI);
+        ctx.fill();
+      };
+
+      ctx.clearRect(0, 0, width, height);
+      scaledData.forEach((country) => {
         const color = getColor(country.values);
-        drawLine(ctx, country.values, color);
         if (activePoint) {
           // Find all values where year is the active year
           const point = country.values.find(({ year }) => {
             return year === activePoint.year;
           });
           if (point) {
-            drawPoint(
-              ctx,
-              scaleX(activePoint.year),
-              scaleY(point.value),
-              color
-            );
+            drawPoint(ctx, activePoint.scaledX, point.scaledY, color);
           }
         }
       });
     },
-    [activeData, drawLine, getColor, activePoint, drawPoint, scaleX, scaleY]
+    [scaledData, getColor, activePoint, width, height]
+  );
+
+  const drawLines = React.useCallback(
+    (ctx) => {
+      const drawLine = (ctx, values = [], color) => {
+        const [first, ...rest] = values;
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth;
+
+        ctx.beginPath();
+
+        ctx.moveTo(first.scaledX, first.scaledY);
+
+        rest.forEach(({ scaledX, scaledY }) => {
+          ctx.lineTo(scaledX, scaledY);
+        });
+
+        ctx.stroke();
+      };
+
+      ctx.clearRect(0, 0, width, height);
+      scaledData.forEach((country) => {
+        const color = getColor(country.values);
+        drawLine(ctx, country.values, color);
+      });
+    },
+    [scaledData, getColor, width, height]
   );
 
   React.useLayoutEffect(() => {
     const ctx = canvasRef.current.getContext("2d");
-    ctx.clearRect(0, 0, width, height);
-    window.requestAnimationFrame(() => drawLines(ctx));
-  }, [canvasRef, width, height, drawLines]);
+    const pointsCtx = pointsCanvasRef.current.getContext("2d");
+    drawLines(ctx);
+    drawPoints(pointsCtx);
+  }, [canvasRef, drawLines, drawPoints]);
 
   return (
     <main>
@@ -199,8 +229,8 @@ export default function App({
           <line
             stroke="#F0F0F0"
             strokeWidth={2}
-            x1={scaleX(activePoint.year)}
-            x2={scaleX(activePoint.year)}
+            x1={activePoint.scaledX}
+            x2={activePoint.scaledX}
             y1={margin.top}
             y2={height - margin.bottom}
           />
@@ -220,6 +250,18 @@ export default function App({
         }}
         ref={canvasRef}
       />
+      <canvas
+        className="chart"
+        height={height}
+        width={width}
+        style={{
+          marginLeft: margin.left,
+          marginRight: margin.right,
+          marginTop: margin.top,
+          marginBottom: margin.bottom
+        }}
+        ref={pointsCanvasRef}
+      />
       {/* This SVG overlay ensures that the tooltip is on top of the chart */}
       <svg
         className="chart"
@@ -232,8 +274,8 @@ export default function App({
       >
         {activePoint && (
           <Tooltip
-            x={scaleX(activePoint.year)}
-            y={scaleY(activePoint.value)}
+            x={activePoint.scaledX}
+            y={activePoint.scaledY}
             width={200}
             height={100}
             canvasWidth={width}
